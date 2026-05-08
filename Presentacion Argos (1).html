@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ARGOS · Mapa Estratégico de Solución</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #020617;
+    --panel: rgba(15, 23, 42, 0.3);
+    --border: rgba(30, 41, 59, 0.8);
+  }
+  html, body { background: var(--bg); }
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    color: #F1F5F9;
+    overflow-x: hidden;
+  }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pingSlow {
+    0%   { transform: scale(1);   opacity: 0.4; }
+    75%, 100% { transform: scale(1.8); opacity: 0; }
+  }
+  .anim-fadein { animation: fadeIn 0.5s ease-out; }
+  .anim-fadeup { animation: fadeUp 0.6s ease-out both; }
+  .anim-ping-slow { animation: pingSlow 2s cubic-bezier(0,0,0.2,1) infinite; }
+
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+  .transition-smooth { transition: all 0.7s cubic-bezier(0.4, 0, 0.2, 1); }
+
+  /* Fondo grid sutil */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px);
+    background-size: 64px 64px;
+    opacity: 0.03;
+  }
+  /* Noise grain */
+  .bg-grain {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.04;
+  }
+
+  /* Estilos italic para preguntas */
+  .question-italic {
+    font-style: italic;
+    color: #E2E8F0;
+  }
+
+  /* ─── DEEPSEEK DASHBOARD STYLES (Tab 5) ──────────────────── */
+  .ds-wrap { font-family: 'Inter', 'Space Grotesk', sans-serif; color: rgb(23,28,38); }
+  .ds-nav { display:flex; gap:0.4rem; background:rgba(255,255,255,0.06); padding:0.3rem; border-radius:60px; backdrop-filter:blur(2px); flex-wrap:wrap; margin-bottom:1.5rem; }
+  .ds-btn { background:transparent; border:none; padding:0.5rem 1.1rem; border-radius:40px; font-weight:600; font-size:0.82rem; cursor:pointer; transition:all 0.2s; color:#eef2ff; font-family:inherit; }
+  .ds-btn i { margin-right:6px; }
+  .ds-btn.active { background-color:rgb(212,238,43); color:rgb(23,28,38); box-shadow:0 2px 8px rgba(0,0,0,0.2); }
+  .ds-btn:hover:not(.active) { background-color:rgba(212,238,43,0.2); }
+  .ds-card { background-color:rgba(255,255,255,0.06); border-radius:20px; padding:1.4rem; border:1px solid rgba(255,255,255,0.1); margin-bottom:1.5rem; }
+  .ds-card-title { font-size:1.05rem; font-weight:600; margin-bottom:1rem; display:flex; align-items:center; gap:8px; border-left:4px solid rgb(212,238,43); padding-left:0.9rem; color:#F1F5F9; }
+  .ds-grid2 { display:grid; grid-template-columns:repeat(2,1fr); gap:1.5rem; margin-bottom:1.5rem; }
+  .ds-grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:1.5rem; margin-bottom:1.5rem; }
+  .ds-map-wrap { height:360px; border-radius:16px; overflow:hidden; border:1px solid rgba(255,255,255,0.1); }
+  .ds-filter-group { display:flex; flex-wrap:wrap; gap:0.8rem; margin-bottom:1.2rem; align-items:center; }
+  .ds-select { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); padding:0.5rem 0.9rem; border-radius:40px; font-weight:500; color:#F1F5F9; font-size:0.82rem; }
+  .ds-select option { background:#1e293b; color:#F1F5F9; }
+  .ds-badge-ok { background:rgb(37,177,119); color:white; padding:3px 9px; border-radius:40px; font-size:0.72rem; font-weight:600; }
+  .ds-badge-warn { background:rgb(245,159,10); color:white; padding:3px 9px; border-radius:40px; font-size:0.72rem; font-weight:600; }
+  .ds-badge-crit { background:rgb(239,67,67); color:white; padding:3px 9px; border-radius:40px; font-size:0.72rem; font-weight:600; }
+  .ds-alert { background:rgba(255,255,255,0.05); border-radius:14px; padding:0.85rem 1rem; margin-bottom:0.6rem; display:flex; align-items:center; gap:10px; border-left:4px solid; font-size:0.85rem; color:#CBD5E1; }
+  .ds-chat { max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:0.8rem; }
+  .ds-bubble { max-width:85%; padding:0.8rem 1.1rem; border-radius:20px; font-size:0.85rem; line-height:1.4; }
+  .ds-bubble-user { background-color:rgba(255,255,255,0.1); align-self:flex-start; border-bottom-left-radius:4px; color:#E2E8F0; }
+  .ds-bubble-bot { background-color:rgb(212,238,43); align-self:flex-end; color:rgb(23,28,38); border-bottom-right-radius:4px; font-weight:500; }
+  .ds-chat-name { font-size:0.65rem; font-weight:600; margin-bottom:4px; color:#94A3B8; }
+  .ds-file-list { display:flex; flex-direction:column; gap:0.7rem; }
+  .ds-file-row { background:rgba(255,255,255,0.05); padding:0.9rem 1rem; border-radius:14px; display:flex; justify-content:space-between; align-items:center; border:1px solid rgba(255,255,255,0.1); font-size:0.85rem; color:#CBD5E1; }
+  .ds-config-field { margin-bottom:1.5rem; }
+  .ds-config-field label { font-weight:600; display:block; margin-bottom:0.4rem; font-size:0.85rem; color:#E2E8F0; }
+  .ds-config-field input[type=text], .ds-config-field input[type=password], .ds-config-field select, .ds-config-field textarea { width:100%; padding:0.7rem 0.9rem; border-radius:14px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#F1F5F9; font-size:0.82rem; }
+  .ds-config-field input[type=range] { width:100%; accent-color:rgb(212,238,43); }
+  .ds-btn-primary { background-color:rgb(212,238,43); border:none; padding:0.6rem 1.3rem; border-radius:40px; font-weight:700; cursor:pointer; transition:0.2s; font-size:0.82rem; color:rgb(23,28,38); }
+  .ds-btn-primary:hover { background-color:rgb(196,220,30); }
+  .ds-hr { margin:1.2rem 0; border:none; border-top:1px solid rgba(255,255,255,0.1); }
+  .ds-hint { font-size:0.72rem; color:#64748B; margin-top:4px; }
+  @media(max-width:900px){ .ds-grid2, .ds-grid3 { grid-template-columns:1fr; } }
+</style>
+</head>
+<body class="min-h-screen relative">
+
+<!-- Fondo decorativo -->
+<div class="absolute inset-0 pointer-events-none overflow-hidden">
+  <div id="bg-mesh" class="absolute inset-0 opacity-30 transition-smooth"></div>
+  <div class="absolute inset-0 bg-grain"></div>
+  <div class="absolute inset-0 bg-grid"></div>
+</div>
+
+<div class="relative max-w-7xl mx-auto px-6 md:px-10 py-12 md:py-16">
+
+  <!-- HEADER -->
+  <header class="mb-12 md:mb-16">
+    <div class="flex items-center gap-3 mb-5">
+      <div id="header-bar" class="w-1 h-7 rounded-full transition-smooth" style="background-color: #22D3EE"></div>
+      <span class="text-[11px] font-mono tracking-[0.3em] uppercase text-slate-500">
+        ARGOS · Mapa Estratégico de Solución
+      </span>
+    </div>
+    <h1 class="text-4xl md:text-6xl font-bold tracking-tight leading-[1.05] mb-4">
+      De cotizaciones dispersas a
+      <span id="header-accent" class="transition-smooth" style="color: #22D3EE">decisiones probabilísticas</span>.
+    </h1>
+  </header>
+
+  <!-- RAIL DE NODOS -->
+  <div class="relative mb-14 md:mb-20">
+    <div class="absolute top-8 left-8 right-8 h-[2px] bg-slate-800 rounded-full hidden md:block"></div>
+    <div id="progress-line" class="absolute top-8 left-8 h-[2px] rounded-full transition-smooth hidden md:block"
+         style="width: 0%; background-color: #22D3EE; box-shadow: 0 0 12px #22D3EE88"></div>
+
+    <div id="rail" class="flex md:justify-between gap-8 md:gap-2 overflow-x-auto md:overflow-visible pb-4 md:pb-0 snap-x snap-mandatory md:snap-none scrollbar-hide">
+      <!-- Los nodos se inyectan vía JS -->
+    </div>
+  </div>
+
+  <!-- PANEL PRINCIPAL -->
+  <main id="panel" class="relative rounded-2xl border bg-slate-900/30 backdrop-blur-md p-6 md:p-12 overflow-hidden anim-fadein"
+        style="border-color: var(--border)">
+    <!-- contenido inyectado por JS -->
+  </main>
+</div>
+
+<script>
+/* ─── ICON LIBRARY (inline SVG) ───────────────────────────────────── */
+const ICONS = {
+  compass: '<path d="M12 22A10 10 0 1 0 12 2a10 10 0 0 0 0 20z"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+  alert:   '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  sparkles:'<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/>',
+  cpu:     '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/>',
+  target:  '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  trending:'<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  zap:     '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  layers:  '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  arrow:   '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+  eye:     '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'
+};
+function svg(name, size = 24, stroke = 'currentColor', sw = 2) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+}
+
+/* ─── DATA: 5 pasos socráticos ────────────────────────────────────── */
+const steps = [
+  {
+    id: 1, tag: " ", phase: " ", intent: " ",
+    icon: "compass", accent: "#22D3EE",
+    title: "¿Cuánto le cuesta a Argos no saber, en tiempo real, dónde pierde el precio?",
+    question: "Si su ICP supera 1.08 en una regional clave, ¿cuántas cotizaciones perdidas representa eso al cierre de mes?",
+    insight: "Hoy el equipo comercial reacciona con datos de hace semanas. Cada punto del Índice de Competitividad de Precio (ICP) por encima de 1.0 es margen evaporado en silencio.",
+    metrics: [
+      { label: "ICP detectado",        value: "1.08",     trend: "+8% vs mercado" },
+      { label: "Tasa de éxito captura", value: "100%",    trend: "60 cotizaciones" },
+      { label: "Ferreterías cubiertas", value: "Parcial", trend: "Cobertura < 100%" }
+    ],
+    kpi: "Índice de Competitividad de Precio · Cobertura de Mercado"
+  },
+  {
+    id: 2, tag: " ", phase: " ", intent: " ",
+    icon: "alert", accent: "#F59E0B",
+    title: "Cliente Misterioso",
+    question: "¿Qué pasaría si descubriera que el 40% de sus regionales caen en el perfil 'Competencia por encima' — y nadie lo está viendo?",
+    insight: "El clustering K-Means sobre precios bayesianos revela tres perfiles: Paridad, Argos Dominante y Competencia por encima. Las alertas 🟡 'Datos insuficientes' y 🔴 'Precio competidor por debajo' son síntomas, no diagnóstico.",
+    metrics: [
+      { label: "Perfiles detectados", value: "3",       trend: "K-Means k=3" },
+      { label: "Alertas activas",     value: "🔴 + 🟡", trend: "Riesgo regional" },
+      { label: "Volatilidad σ",       value: "Alta",    trend: "Mercado heterogéneo" }
+    ],
+    kpi: "Volatilidad de Precio · Índice de Riesgo Comercial"
+  },
+  {
+    id: 3, tag: " ", phase: " ", intent: " ",
+    icon: "sparkles", accent: "#A78BFA",
+    title: "¿Cómo se conectan?",
+    question: "¿Qué tan distinto sería su próximo comité comercial si entrara con intervalos de credibilidad del 95% por municipio y producto?",
+    insight: "La inferencia bayesiana jerárquica (PyMC) entrega μ̂ con HDI 95% por cada combinación producto × regional. Ya no es 'creemos que el precio justo es X': es 'con 95% de credibilidad, el precio se ubica entre Y y Z'.",
+    metrics: [
+      { label: "Modelo",         value: "Bayesiano jerárquico", trend: "PyMC · NUTS" },
+      { label: "Credibilidad",   value: "HDI 95%",              trend: "Por municipio" },
+      { label: "Granularidad",   value: "Producto × Regional",  trend: "Multinivel" }
+    ],
+    kpi: "Variación Temporal · Ranking por Ciudad y Marca"
+  },
+  {
+    id: 4, tag: " ", phase: " ", intent: " ",
+    icon: "cpu", accent: "#10B981",
+    title: "Inferencia bayesiana + segmentación K-Means: el corazón del motor.",
+    question: "¿Qué tipo de ventaja competitiva nace cuando integra LLM (confianza ≥ 0.80), PyMC y clustering en un solo pipeline persistente?",
+    insight: "El sistema extrae cotizaciones, filtra por confianza LLM ≥ 0.80, ajusta un modelo jerárquico con priors informativos (μ₀=30k, τ=5k), genera HDI por grupo y segmenta con K-Means estandarizado. Persistencia incremental en 3 CSV: precios regionales, intervalos HDI y perfiles + alertas.",
+    metrics: [
+      { label: "Confianza LLM",       value: "0.89",      trend: "Meta ≥ 0.80 ✓" },
+      { label: "Cadenas MCMC",        value: "2 × 1000",  trend: "target_accept 0.95" },
+      { label: "Outputs persistidos", value: "3 CSV",     trend: "Append incremental" }
+    ],
+    kpi: "Pipeline integrado: Muestreo + Bayes + Clustering"
+  },
+  {
+    id: 5, tag: " ", phase: " ", intent: " ",
+    icon: "target", accent: "#D4EE2B",
+    title: "Un dashboard que no informa: decide por usted.",
+    question: "¿Está listo para reemplazar reportes de la semana pasada por alertas accionables, geolocalizadas y con respaldo probabilístico?",
+    insight: "El destino lógico es un tablero único donde cada KPI (ICP, Volatilidad, Variación, Riesgo, Ranking, Cobertura) se cruza con los perfiles bayesianos. Cada alerta 🔴 dispara una acción comercial concreta. Cada 🟡 dispara una orden de captura adicional.",
+    metrics: [
+      { label: "KPIs integrados",       value: "6",          trend: "End-to-end" },
+      { label: "Tiempo de decisión",    value: "Real-time",  trend: "vs semanal" },
+      { label: "Acciones por alerta",   value: "Predefinidas", trend: "Playbook activo" }
+    ],
+    kpi: "Dashboard de Competitividad · Solución integral ARGOS"
+  }
+];
+
+/* ─── ESTADO ──────────────────────────────────────────────────────── */
+let activeIdx = 0;
+
+/* ─── RENDER NODOS DEL RAIL ───────────────────────────────────────── */
+function renderRail() {
+  const rail = document.getElementById('rail');
+  rail.innerHTML = steps.map((s, i) => {
+    const isActive = i === activeIdx;
+    const isPast   = i < activeIdx;
+    const bg     = isActive ? s.accent : 'rgba(15,23,42,0.8)';
+    const border = (isPast || isActive) ? s.accent : 'rgba(148,163,184,0.3)';
+    const iconColor = isActive ? '#0F172A' : (isPast ? s.accent : '#94A3B8');
+    const opacity = (isPast || isActive) ? 1 : 0.5;
+    const scale   = isActive ? 'scale(1.1)' : 'scale(1)';
+    const shadow  = isActive ? `0 0 32px ${s.accent}66, inset 0 0 12px ${s.accent}33` : 'none';
+
+    return `
+      <div class="snap-center">
+        <button onclick="setActive(${i})"
+                class="group relative flex flex-col items-center flex-shrink-0 focus:outline-none"
+                style="opacity:${opacity}">
+          ${isActive ? `<span class="absolute top-0 w-16 h-16 rounded-full anim-ping-slow" style="background-color:${s.accent}"></span>` : ''}
+          <div class="relative w-16 h-16 rounded-full flex items-center justify-center border-2 transition-smooth"
+               style="background-color:${bg}; border-color:${border}; transform:${scale}; box-shadow:${shadow}">
+            ${svg(s.icon, 26, iconColor, 2)}
+          </div>
+          <div class="mt-4 text-center w-28">
+            <div class="text-[10px] font-mono tracking-[0.2em] uppercase mb-1 transition-smooth"
+                 style="color:${isActive ? s.accent : '#64748B'}">${s.tag}</div>
+            <div class="text-xs font-medium transition-smooth"
+                 style="color:${isActive ? '#F1F5F9' : '#64748B'}">${s.phase}</div>
+          </div>
+        </button>
+      </div>`;
+  }).join('');
+}
+
+/* ─── RENDER PANEL ───────────────────────────────────────────────── */
+function renderPanel() {
+  const s = steps[activeIdx];
+  const panel = document.getElementById('panel');
+
+  const dotsHTML = steps.map((_, i) => `
+    <button onclick="setActive(${i})" aria-label="Ir al paso ${i + 1}"
+            class="w-8 h-1 rounded-full transition-smooth"
+            style="background-color:${i === activeIdx ? s.accent : 'rgba(148,163,184,0.2)'};
+                   box-shadow:${i === activeIdx ? `0 0 10px ${s.accent}aa` : 'none'}">
+    </button>
+  `).join('');
+
+  // Cabecera común (paso + intención + KPI)
+  const headerHTML = `
+    <div class="absolute left-0 top-0 bottom-0 w-1 transition-smooth" style="background-color:${s.accent}"></div>
+    <div class="absolute -top-32 -right-32 w-64 h-64 rounded-full opacity-20 blur-3xl pointer-events-none transition-smooth"
+         style="background-color:${s.accent}"></div>
+
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 relative">
+    </div>
+
+    <h2 class="text-2xl md:text-4xl font-bold tracking-tight leading-[1.15] mb-6 text-slate-50 relative">
+      ${s.title}
+    </h2>
+  `;
+
+  // Footer de navegación común
+  const navHTML = `
+    <div class="flex items-center justify-between pt-6 border-t border-slate-800/60 relative">
+      <button onclick="setActive(${Math.max(0, activeIdx - 1)})"
+              ${activeIdx === 0 ? 'disabled' : ''}
+              class="flex items-center gap-2 text-xs font-mono uppercase tracking-[0.2em] text-slate-500 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+        <span style="transform: rotate(180deg); display:inline-flex">${svg('arrow', 14, 'currentColor', 2)}</span>
+        Anterior
+      </button>
+      <div class="flex gap-1.5">${dotsHTML}</div>
+      <button onclick="setActive(${Math.min(steps.length - 1, activeIdx + 1)})"
+              ${activeIdx === steps.length - 1 ? 'disabled' : ''}
+              class="flex items-center gap-2 text-xs font-mono uppercase tracking-[0.2em] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              style="color:${activeIdx === steps.length - 1 ? '#64748B' : s.accent}">
+        ${activeIdx === steps.length - 1 ? 'Final' : 'Siguiente'}
+        ${svg('arrow', 14, 'currentColor', 2)}
+      </button>
+    </div>
+  `;
+
+  let bodyHTML = '';
+
+  /* ═════════ PASO 01 · EL GANCHO — minimalista ═════════ */
+  if (activeIdx === 0) {
+    bodyHTML = ''; // Solo cabecera y nav
+  }
+
+  /* ═════════ PASO 02 · IDENTIDAD DEL BOT ═════════ */
+  else if (activeIdx === 1) {
+    bodyHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 relative">
+        <!-- Tarjeta de identidad -->
+        <div class="relative p-6 rounded-2xl border bg-slate-950/40 backdrop-blur-sm anim-fadeup overflow-hidden"
+             style="border-color:${s.accent}33; animation-delay:0.1s">
+          <div class="absolute top-0 left-0 h-[3px] w-full" style="background-color:${s.accent}"></div>
+          <div class="absolute -top-16 -right-16 w-40 h-40 rounded-full opacity-20 blur-2xl" style="background-color:${s.accent}"></div>
+
+          <div class="flex items-center gap-3 mb-5 relative">
+            <div class="w-12 h-12 rounded-full flex items-center justify-center border-2 text-2xl"
+                 style="background-color:${s.accent}20; border-color:${s.accent}66">🕵️</div>
+            <div>
+              <div class="text-[10px] font-mono uppercase tracking-[0.25em] mb-0.5" style="color:${s.accent}">Identidad operativa</div>
+              <div class="text-lg font-bold text-slate-50"></div>
+            </div>
+          </div>
+
+          <div class="space-y-3 text-sm relative">
+            <div class="flex items-start gap-3">
+              <span class="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-500 w-24 flex-shrink-0 pt-1">Encargo</span>
+              <span class="text-slate-200">Compras de la <strong style="color:${s.accent}">Constructora MR</strong></span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-500 w-24 flex-shrink-0 pt-1">Misión</span>
+              <span class="text-slate-300">Cotizar cemento y concreto en ferreterías locales sin levantar sospechas</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-500 w-24 flex-shrink-0 pt-1">Adaptación</span>
+              <span class="text-slate-300">Modula <strong class="text-slate-100">dialecto local</strong> según municipio (paisa, costeño, santandereano…)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ejemplo de conversación -->
+        <div class="relative p-6 rounded-2xl border border-slate-800/60 bg-slate-950/40 backdrop-blur-sm anim-fadeup"
+             style="animation-delay:0.2s">
+          <div class="text-[10px] font-mono uppercase tracking-[0.25em] text-slate-500 mb-4 flex items-center gap-2">
+            ${svg('eye', 11, 'currentColor', 2)} Ejemplo en acción · Medellín
+          </div>
+
+          <div class="space-y-3">
+            <div class="flex justify-end">
+              <div class="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-sm text-sm leading-relaxed"
+                   style="background-color:${s.accent}22; border:1px solid ${s.accent}55; color:#F1F5F9">
+                ¡Hola pues! ¿Vos tenés cemento gris de 50 kilos? ¿A cómo me lo dejás?
+              </div>
+            </div>
+            <div class="flex justify-start">
+              <div class="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-bl-sm text-sm leading-relaxed bg-slate-800/60 border border-slate-700/60 text-slate-200">
+                Claro que sí. El bulto está en $32.000, marca Argos.
+              </div>
+            </div>
+            <div class="flex justify-end">
+              <div class="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-sm text-sm leading-relaxed"
+                   style="background-color:${s.accent}22; border:1px solid ${s.accent}55; color:#F1F5F9">
+                Listo parce, ¿y si llevo 20 bultos me hacés rebajita?
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-5 pt-4 border-t border-slate-800/60 flex items-center gap-2 text-[11px] font-mono text-slate-500">
+            ${svg('zap', 11, s.accent, 2)}
+            <span>Captura natural · sin alertar al competidor</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /* ═════════ PASO 03 · DIAGRAMA DE BASE DE DATOS ═════════ */
+  else if (activeIdx === 2) {
+    bodyHTML = `
+      <!-- Flujo conectado -->
+      <div class="relative p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 mb-10">
+        <div class="text-[15px] font-mono uppercase tracking-[0.2em] text-slate-500 mb-4 text-center">Esquema</div>
+        <div class="flex items-center justify-between gap-2 text-xs">
+          <div class="flex-1 text-center">
+            <div class="text-2xl mb-1">📋</div>
+            <div class="text-[20px] font-medium">Cotizaciones</div>
+            <div class="text-[15px] text-slate-300">Datos crudos</div>
+          </div>
+          <div style="color:${s.accent}">${svg('arrow', 18, 'currentColor', 2)}</div>
+          <div class="flex-1 text-center">
+            <div class="text-2xl mb-1">📊</div>
+            <div class="text-[20px] font-medium">Precios estimados</div>
+            <div class="text-[15px] text-slate-300">Modelo bayesiano</div>
+          </div>
+          <div style="color:${s.accent}">${svg('arrow', 18, 'currentColor', 2)}</div>
+          <div class="flex-1 text-center">
+            <div class="text-2xl mb-1">🚦</div>
+            <div class="text-[20px] font-medium">Perfiles + Alertas</div>
+            <div class="text-[15px] text-slate-300">Decisión accionable</div>
+          </div>
+        </div>
+      </div>
+      <!-- Diagrama de 3 tablas -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8 relative">
+        <!-- Tabla 1 -->
+        <div class="relative p-5 rounded-xl border bg-slate-950/40 backdrop-blur-sm anim-fadeup overflow-hidden"
+             style="border-color:${s.accent}44; animation-delay:0.1s">
+          <div class="absolute top-0 left-0 h-[3px] w-full" style="background-color:${s.accent}"></div>
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-base"
+                 style="background-color:${s.accent}22; border:1px solid ${s.accent}55">📋</div>
+            <div class="text-sm font-bold text-slate-100">Cotizaciones</div>
+          </div>
+          <div class="text-[15px] font-mono uppercase tracking-[0.18em] text-slate-500 mb-3">Lo que dijo cada ferretería</div>
+          <ul class="space-y-1.5 text-sm text-slate-300">
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Ferretería</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Ciudad / Municipio</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Producto</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Marca</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Precio</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Fecha</li>
+          </ul>
+        </div>
+
+        <!-- Tabla 2 -->
+        <div class="relative p-5 rounded-xl border bg-slate-950/40 backdrop-blur-sm anim-fadeup overflow-hidden"
+             style="border-color:${s.accent}44; animation-delay:0.18s">
+          <div class="absolute top-0 left-0 h-[3px] w-full" style="background-color:${s.accent}"></div>
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-base"
+                 style="background-color:${s.accent}22; border:1px solid ${s.accent}55">📊</div>
+            <div class="text-sm font-bold text-slate-100">Precios estimados</div>
+          </div>
+          <div class="text-[15px] font-mono uppercase tracking-[0.18em] text-slate-500 mb-3">Rango creíble por zona</div>
+          <ul class="space-y-1.5 text-sm text-slate-300">
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Producto</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Regional</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Precio mínimo</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Precio típico</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Precio máximo</li>
+          </ul>
+        </div>
+
+        <!-- Tabla 3 -->
+        <div class="relative p-5 rounded-xl border bg-slate-950/40 backdrop-blur-sm anim-fadeup overflow-hidden"
+             style="border-color:${s.accent}44; animation-delay:0.26s">
+          <div class="absolute top-0 left-0 h-[3px] w-full" style="background-color:${s.accent}"></div>
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-base"
+                 style="background-color:${s.accent}22; border:1px solid ${s.accent}55">🚦</div>
+            <div class="text-sm font-bold text-slate-100">Perfiles + Alertas</div>
+          </div>
+          <div class="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-500 mb-3">Qué hacer al respecto</div>
+          <ul class="space-y-1.5 text-sm text-slate-300">
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Regional</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Perfil (1, 2 ó 3)</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Alerta 🟢🟡🔴</li>
+            <li class="flex items-center gap-2"><span style="color:${s.accent}">•</span> Acción sugerida</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ══ DIAGRAMA: ARQUITECTURA DEL PROMPT ══ -->
+      <div class="relative rounded-2xl border anim-fadeup overflow-hidden mt-2 mb-2"
+           style="border-color:${s.accent}44; animation-delay:0.35s; background:rgba(10,12,20,0.7);">
+        <div class="absolute top-0 left-0 h-[3px] w-full" style="background:linear-gradient(90deg,${s.accent},${s.accent}44)"></div>
+
+        <div class="p-6">
+          <div class="text-[11px] font-mono uppercase tracking-[0.22em] text-slate-500 mb-6 text-center">Arquitectura de construcción del prompt</div>
+
+          <!-- Diagrama visual -->
+          <div class="flex flex-col items-center gap-0 select-none" style="font-family:'JetBrains Mono',monospace;">
+
+            <!-- BASE PROMPT -->
+            <div class="px-5 py-2.5 rounded-xl border-2 text-sm font-bold text-center"
+                 style="border-color:${s.accent}; color:${s.accent}; background:${s.accent}18; min-width:200px;">
+              [ BASE PROMPT ]
+            </div>
+            <!-- connector -->
+            <div class="flex flex-col items-center" style="gap:0">
+              <div style="width:2px;height:18px;background:${s.accent}88"></div>
+              <!-- branch line -->
+              <div style="display:flex;align-items:center;gap:0;width:420px;max-width:90vw;">
+                <div style="flex:1;height:2px;background:${s.accent}66"></div>
+                <div style="width:2px;height:36px;background:${s.accent}66;margin:0 auto"></div>
+                <div style="flex:1;height:2px;background:${s.accent}66"></div>
+              </div>
+            </div>
+
+            <!-- REGION + ESTADO -->
+            <div class="flex items-start justify-between w-full" style="max-width:420px;">
+              <div class="flex flex-col items-center gap-1">
+                <div class="px-4 py-2 rounded-xl border text-xs font-semibold text-center"
+                     style="border-color:${s.accent}88; color:#E2E8F0; background:${s.accent}12; min-width:140px;">
+                  [ REGIÓN PROMPT ]
+                </div>
+              </div>
+              <div class="flex flex-col items-center gap-1">
+                <div class="px-4 py-2 rounded-xl border text-xs font-semibold text-center"
+                     style="border-color:${s.accent}88; color:#E2E8F0; background:${s.accent}12; min-width:140px;">
+                  [ ESTADO PROMPT ]
+                </div>
+              </div>
+            </div>
+
+            <!-- merge lines -->
+            <div style="display:flex;align-items:flex-end;width:420px;max-width:90vw;height:36px;">
+              <div style="flex:1;border-right:2px solid ${s.accent}66;border-bottom:2px solid ${s.accent}66;height:100%;border-bottom-right-radius:6px"></div>
+              <div style="flex:1;border-left:2px solid ${s.accent}66;border-bottom:2px solid ${s.accent}66;height:100%;border-bottom-left-radius:6px"></div>
+            </div>
+
+            <!-- COMBINACIÓN label -->
+            <div class="text-[11px] font-mono tracking-widest mb-1" style="color:${s.accent}99">— COMBINACIÓN —</div>
+            <div style="width:2px;height:18px;background:${s.accent}88"></div>
+
+            <!-- HISTORIAL -->
+            <div class="flex items-center gap-3">
+              <div class="px-5 py-2.5 rounded-xl border-2 text-sm font-bold text-center flex items-center gap-2"
+                   style="border-color:#25b177; color:#25b177; background:#25b17718; min-width:220px;">
+                [ HISTORIAL CONVERSACIÓN ]
+              </div>
+              <div class="flex flex-col items-start">
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full mb-1" style="background:#25b17730;color:#25b177;">← NUEVO</span>
+                <span class="text-[10px] text-slate-500" style="white-space:nowrap;">(últimas N interacciones desde BD)</span>
+              </div>
+            </div>
+
+            <div style="width:2px;height:18px;background:${s.accent}88"></div>
+
+            <!-- CONTEXTO DINÁMICO -->
+            <div class="px-5 py-2.5 rounded-xl border text-sm font-semibold text-center"
+                 style="border-color:${s.accent}66; color:#CBD5E1; background:${s.accent}0d; min-width:200px;">
+              [ CONTEXTO DINÁMICO ]
+            </div>
+            <div style="width:2px;height:18px;background:${s.accent}88"></div>
+
+            <!-- PROMPT FINAL -->
+            <div class="px-5 py-2.5 rounded-xl border text-sm font-semibold text-center"
+                 style="border-color:${s.accent}66; color:#CBD5E1; background:${s.accent}0d; min-width:200px;">
+              [ PROMPT FINAL ]
+            </div>
+            <div style="width:2px;height:18px;background:${s.accent}88"></div>
+
+            <!-- MENSAJE OUTPUT -->
+            <div class="px-5 py-2.5 rounded-xl border-2 text-sm font-bold text-center"
+                 style="border-color:${s.accent}; color:${s.accent}; background:${s.accent}18; min-width:200px;">
+              [ MENSAJE OUTPUT ]
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="border-t px-6 py-3 flex flex-wrap gap-x-6 gap-y-1"
+             style="border-color:${s.accent}22; background:rgba(0,0,0,0.3);">
+          <span class="text-[11px] font-mono" style="color:#475569;">
+            <span style="color:#25b177">Fuente:</span> tabla HistorialInteraccion (ya existe en BD)
+          </span>
+          <span class="text-[11px] font-mono text-slate-500">
+            Permite responder: ¿Qué hemos hablado? &nbsp;/&nbsp; ¿Qué no debo volver a preguntar?
+          </span>
+        </div>
+      </div>
+    `;
+  }
+  else if (activeIdx === 3) {
+    bodyHTML = `
+      <p class="text-slate-400 text-sm md:text-base leading-relaxed mb-6 max-w-3xl">
+        Visualización geográfica de precios y competitividad por departamento/municipio. Las burbujas representan volumen y posición competitiva de Argos frente al mercado.
+      </p>
+      <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(30,41,59,0.8); border-radius:20px; padding:1.4rem; margin-bottom:1.5rem;">
+        <div style="font-size:1.05rem; font-weight:600; margin-bottom:1rem; display:flex; align-items:center; gap:8px; border-left:4px solid ${s.accent}; padding-left:0.9rem; color:#F1F5F9;">
+          <i class="fas fa-map-marked-alt" style="color:${s.accent}"></i> Mapa de precios por Departamento/Municipio
+        </div>
+        <div class="ds-filter-group">
+          <select class="ds-select" id="mapMarcaFilter" onchange="refreshArgosMap()">
+            <option value="Argos">Argos</option><option value="Cemex">Cemex</option><option value="Diamante">Diamante</option><option value="Ultracem">Ultracem</option>
+          </select>
+          <select class="ds-select" id="mapPresentFilter" onchange="refreshArgosMap()">
+            <option value="bulto">Bulto 50kg</option><option value="tonelada">Tonelada</option>
+          </select>
+        </div>
+        <div id="argosMapContainer" style="height:420px; border-radius:16px; overflow:hidden; border:1px solid rgba(255,255,255,0.1);"></div>
+      </div>
+      <!-- Leyenda -->
+      <div class="flex flex-wrap gap-4 text-xs text-slate-400 mb-4">
+        <span class="flex items-center gap-2"><span style="width:12px;height:12px;border-radius:50%;background:#25b177;display:inline-block"></span> ICP &lt; 1.0 · Argos dominante</span>
+        <span class="flex items-center gap-2"><span style="width:12px;height:12px;border-radius:50%;background:#f59f0a;display:inline-block"></span> ICP 1.0–1.05 · Paridad</span>
+        <span class="flex items-center gap-2"><span style="width:12px;height:12px;border-radius:50%;background:#ef4343;display:inline-block"></span> ICP &gt; 1.05 · Competencia arriba</span>
+      </div>
+    `;
+  }
+
+  /* ═════════ PASO 05 · DASHBOARD ARGOS INTEL ═════════ */
+  else if (activeIdx === 4) {
+    bodyHTML = `
+      <p class="text-slate-400 text-sm md:text-base leading-relaxed mb-6 max-w-3xl">
+        Vista única de comando: Dashboard completo con precios regionales, intervalos HDI, alertas activas e historial de interacciones con ferreterías.
+      </p>
+
+      <!-- Sub-navegación deepseek -->
+      <div class="ds-nav" id="dsNavBar">
+        <button class="ds-btn active" data-dstab="ds-dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</button>
+        <button class="ds-btn" data-dstab="ds-files"><i class="fas fa-folder-open"></i> Archivos Drive</button>
+        <button class="ds-btn" data-dstab="ds-history"><i class="fas fa-comments"></i> Historial Interacciones</button>
+        <button class="ds-btn" data-dstab="ds-config"><i class="fas fa-sliders-h"></i> Configuración</button>
+      </div>
+
+      <!-- ===== TAB: DASHBOARD ===== -->
+      <div id="ds-dashboard" class="ds-tab-content">
+        <div class="ds-card">
+          <div class="ds-filter-group">
+            <i class="fas fa-filter" style="color:#94A3B8"></i>
+            <select class="ds-select" id="dsMarcaSelector">
+              <option value="Argos">Argos</option><option value="Cemex">Cemex</option><option value="Diamante">Diamante</option><option value="Ultracem">Ultracem</option>
+            </select>
+            <select class="ds-select" id="dsPresentacionSelector">
+              <option value="bulto">Bulto 50kg</option><option value="tonelada">Tonelada</option>
+            </select>
+            <button class="ds-btn-primary" onclick="dsRefreshPrices()"><i class="fas fa-sync-alt"></i> Actualizar</button>
+          </div>
+        </div>
+
+        <div class="ds-grid2">
+          <div class="ds-card">
+            <div class="ds-card-title"><i class="fas fa-chart-simple"></i> Precio promedio por regional</div>
+            <canvas id="dsPriceRegionalChart" height="200"></canvas>
+            <div id="dsTendenciaDetalle" style="margin-top:10px; font-size:0.75rem; color:#64748B;"></div>
+          </div>
+          <div class="ds-card">
+            <div class="ds-card-title"><i class="fas fa-chart-gantt"></i> Intervalos HDI 94% (Modelo ARGOS)</div>
+            <canvas id="dsHdiChart" height="200"></canvas>
+            <div style="font-size:0.65rem; margin-top:10px; color:#475569;">*Intervalos de credibilidad bayesianos. Datos simulados con tendencias realistas.</div>
+          </div>
+        </div>
+
+        <div class="ds-card">
+          <div class="ds-card-title"><i class="fas fa-map-marked-alt"></i> Mapa de precios por Departamento/Municipio</div>
+          <div id="dsMapContainer" class="ds-map-wrap"></div>
+        </div>
+
+        <div class="ds-card">
+          <div class="ds-card-title"><i class="fas fa-bell"></i> Panel de Alertas Configurables</div>
+          <div id="dsAlertsPanel"></div>
+          <div class="ds-filter-group" style="margin-top:0.8rem;">
+            <button class="ds-btn-primary" onclick="alert('Configuración de umbrales: Defina % variación y confianza mínima.')"><i class="fas fa-cog"></i> Configurar umbrales</button>
+          </div>
+        </div>
+
+        <div class="ds-card">
+          <div class="ds-card-title"><i class="fas fa-chart-line"></i> Tendencia semanal de precios (últimas 4 semanas)</div>
+          <canvas id="dsWeeklyTrendChart" height="100"></canvas>
+        </div>
+      </div>
+
+      <!-- ===== TAB: ARCHIVOS DRIVE ===== -->
+      <div id="ds-files" class="ds-tab-content" style="display:none;">
+        <div class="ds-card">
+          <div class="ds-card-title"><i class="fas fa-cloud-download-alt"></i> Archivos guardados en Google Drive</div>
+          <div class="ds-file-list">
+            <div class="ds-file-row"><span><i class="fas fa-file-csv" style="color:#A78BFA"></i>&nbsp; cotizaciones_pdf.csv</span><button class="ds-btn-primary" onclick="alert('Descargando: cotizaciones_pdf.csv')">Descargar</button></div>
+            <div class="ds-file-row"><span><i class="fas fa-file-csv" style="color:#A78BFA"></i>&nbsp; argos_precios_regionales.csv</span><button class="ds-btn-primary" onclick="alert('Descargando: argos_precios_regionales.csv')">Descargar</button></div>
+            <div class="ds-file-row"><span><i class="fas fa-file-csv" style="color:#A78BFA"></i>&nbsp; argos_intervalos_hdi.csv</span><button class="ds-btn-primary" onclick="alert('Descargando: argos_intervalos_hdi.csv')">Descargar</button></div>
+            <div class="ds-file-row"><span><i class="fas fa-file-pdf" style="color:#EF4444"></i>&nbsp; cotizacion_ferreteria_abril.pdf</span><button class="ds-btn-primary" onclick="alert('Visualizando PDF...')">Visualizar / Descargar</button></div>
+            <div class="ds-file-row"><span><i class="fas fa-file-code" style="color:#10B981"></i>&nbsp; BASEPROMPT.xml</span><button class="ds-btn-primary" onclick="alert('Editando BASEPROMPT.xml...')">Editar / Descargar</button></div>
+          </div>
+          <div style="margin-top:1rem; background:rgba(255,255,255,0.05); padding:0.9rem 1rem; border-radius:14px; font-size:0.8rem; color:#94A3B8;">
+            <i class="fas fa-info-circle" style="color:#22D3EE"></i> Los archivos se sincronizan con /content/drive/MyDrive/ (entorno real conectado al bot).
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== TAB: HISTORIAL ===== -->
+      <div id="ds-history" class="ds-tab-content" style="display:none;">
+        <div class="ds-card">
+          <div class="ds-card-title"><i class="fas fa-history"></i> Conversaciones por ferretería</div>
+          <select class="ds-select" id="dsFerreteriaSelect" onchange="dsRenderHistorial(this.value)" style="margin-bottom:1.2rem; width:auto;">
+            <option value="Ferretería El Triunfo">Ferretería El Triunfo</option>
+            <option value="Ferretería La 14">Ferretería La 14</option>
+            <option value="Materiales del Centro">Materiales del Centro</option>
+            <option value="Ferretería Norte Construye">Ferretería Norte Construye</option>
+          </select>
+          <div id="dsChatHistory" class="ds-chat"></div>
+        </div>
+      </div>
+
+      <!-- ===== TAB: CONFIGURACIÓN ===== -->
+      <div id="ds-config" class="ds-tab-content" style="display:none;">
+        <div class="ds-card">
+          <div class="ds-card-title"><i class="fas fa-code-branch"></i> Configuración avanzada del Bot</div>
+          <div class="ds-config-field">
+            <label><i class="fas fa-file-code"></i> BASEPROMPT.xml (edición visual)</label>
+            <textarea id="dsBasePromptEditor" rows="5" placeholder="<base_prompt> ... </base_prompt>" style="width:100%; border-radius:14px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#F1F5F9; padding:12px; font-size:0.82rem;"><base_prompt>
+  <role>Eres encargado de compras de constructora MR, experto en cemento.</role>
+  <tone>Colombiano real, whatsapp conciso.</tone>
+</base_prompt></textarea>
+            <button class="ds-btn-primary" style="margin-top:8px;" onclick="alert('BASE PROMPT guardado (simulado)')">Guardar cambios XML</button>
+          </div>
+          <div class="ds-hr"></div>
+          <div class="ds-config-field">
+            <label>🔧 Modelo Anthropic</label>
+            <select class="ds-select" id="dsModelSelect" style="width:100%; border-radius:14px;">
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6 (recomendado)</option>
+              <option value="claude-opus-4-6">claude-opus-4-6 (más capaz)</option>
+              <option value="claude-haiku-4-5-20251001">claude-haiku (económico)</option>
+            </select>
+            <label style="margin-top:12px;">API Key</label>
+            <input type="password" id="dsApiKeyInput" placeholder="sk-ant-api..." style="width:100%; border-radius:14px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#F1F5F9; padding:0.7rem 0.9rem; font-size:0.82rem;">
+          </div>
+          <div class="ds-hr"></div>
+          <div class="ds-config-field">
+            <label>🎛️ Ajustar "ruido humano" (typo_rate) &nbsp;<span id="dsTypoValue" style="color:#22D3EE;">0.012</span></label>
+            <input type="range" id="dsTypoRateSlider" min="0" max="0.03" step="0.001" value="0.012" oninput="document.getElementById('dsTypoValue').innerText=parseFloat(this.value).toFixed(3)">
+            <div class="ds-hint">Subir a 0.02 para más errores de dedo, bajar a 0.005 para menos.</div>
+          </div>
+          <div class="ds-hr"></div>
+          <div class="ds-config-field">
+            <label>📚 Profundidad del historial (history_limit) &nbsp;<span id="dsHistoryLimitVal" style="color:#22D3EE;">10</span></label>
+            <input type="range" id="dsHistoryLimitSlider" min="3" max="30" step="1" value="10" oninput="document.getElementById('dsHistoryLimitVal').innerText=this.value">
+            <div class="ds-hint">Cada unidad = 1 interacción (2 mensajes). Subir a 20 para más memoria.</div>
+          </div>
+          <div class="ds-hr"></div>
+          <button class="ds-btn-primary" onclick="document.getElementById('dsConfigFeedback').innerHTML='✅ Configuración guardada (simulada)'; setTimeout(()=>document.getElementById('dsConfigFeedback').innerHTML='',3000)">
+            <i class="fas fa-save"></i> Guardar toda la configuración
+          </button>
+          <div id="dsConfigFeedback" style="margin-top:0.8rem; color:rgb(37,177,119); font-size:0.82rem;"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  panel.innerHTML = headerHTML + bodyHTML + navHTML;
+
+  // Post-render: inicializar componentes según paso activo
+  if (activeIdx === 3) {
+    setTimeout(() => initArgosMap(), 80);
+  } else if (activeIdx === 4) {
+    setTimeout(() => {
+      dsInitNavBar();
+      dsRenderRegionalChart();
+      dsRenderHDI();
+      dsRenderWeeklyTrend();
+      dsRenderAlertas();
+      dsRenderHistorial('Ferretería El Triunfo');
+      dsInitMapInline();
+    }, 120);
+  }
+
+  // Reanimar
+  panel.classList.remove('anim-fadein');
+  void panel.offsetWidth;
+  panel.classList.add('anim-fadein');
+}
+
+/* ─── RENDER FONDO + CABECERA ────────────────────────────────────── */
+function renderChrome() {
+  const s = steps[activeIdx];
+  const progress = (activeIdx / (steps.length - 1)) * 100;
+
+  document.getElementById('progress-line').style.width = `calc((100% - 64px) * ${progress / 100})`;
+  document.getElementById('progress-line').style.backgroundColor = s.accent;
+  document.getElementById('progress-line').style.boxShadow = `0 0 12px ${s.accent}88`;
+
+  document.getElementById('header-bar').style.backgroundColor = s.accent;
+  document.getElementById('header-accent').style.color = s.accent;
+
+  document.getElementById('bg-mesh').style.background = `
+    radial-gradient(circle at 15% 20%, ${s.accent}22 0%, transparent 45%),
+    radial-gradient(circle at 85% 80%, ${s.accent}18 0%, transparent 50%)
+  `;
+}
+
+/* ─── ACCIÓN: cambiar paso ───────────────────────────────────────── */
+function setActive(i) {
+  activeIdx = Math.max(0, Math.min(steps.length - 1, i));
+  renderRail();
+  renderPanel();
+  renderChrome();
+
+  // Scroll al nodo activo en móvil
+  const rail = document.getElementById('rail');
+  const node = rail.children[activeIdx];
+  if (node && node.scrollIntoView) {
+    node.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
+}
+
+/* ─── KEYBOARD: flechas izq/der ──────────────────────────────────── */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') setActive(activeIdx + 1);
+  if (e.key === 'ArrowLeft')  setActive(activeIdx - 1);
+});
+
+/* ─── MAPA ARGOS (Tab 4) ─────────────────────────────────────────── */
+let argosMap = null;
+const municipiosData = [
+  { name: "Medellín",     coords: [6.2442, -75.5812], price: 32450, region: "CENTRO",   icp: 0.98 },
+  { name: "Barranquilla", coords: [10.9639, -74.7964], price: 33200, region: "NORTE",   icp: 1.06 },
+  { name: "Cali",         coords: [3.4516, -76.5320],  price: 34100, region: "SUR",     icp: 1.08 },
+  { name: "Bucaramanga",  coords: [7.1193, -73.1227],  price: 31900, region: "ORIENTE", icp: 0.99 },
+  { name: "Bogotá",       coords: [4.7110, -74.0721],  price: 32650, region: "CENTRO",  icp: 1.02 }
+];
+
+function initArgosMap() {
+  const container = document.getElementById('argosMapContainer');
+  if (!container) return;
+  if (argosMap) { argosMap.remove(); argosMap = null; }
+  argosMap = L.map('argosMapContainer').setView([4.5709, -74.2973], 6);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> & CartoDB'
+  }).addTo(argosMap);
+  municipiosData.forEach(m => {
+    const radius = 25 + (m.price - 31000) / 30;
+    const color = m.icp > 1.05 ? '#ef4343' : (m.icp > 1.0 ? '#f59f0a' : '#25b177');
+    L.circleMarker(m.coords, { radius, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.75 })
+      .bindPopup(`<b>${m.name}</b><br/>Precio: $${m.price.toLocaleString('es-CO')}<br/>ICP: ${m.icp}<br/>Regional: ${m.region}`)
+      .addTo(argosMap);
+  });
+  setTimeout(() => argosMap && argosMap.invalidateSize(), 200);
+}
+
+function refreshArgosMap() {
+  if (argosMap) { argosMap.remove(); argosMap = null; }
+  initArgosMap();
+}
+
+/* ─── DEEPSEEK DASHBOARD (Tab 5) ─────────────────────────────────── */
+let dsPreciosData = {
+  "CENTRO":  { promedio: 32450, tendencia: "+2.1%", historic: [31800, 32000, 32200, 32450] },
+  "NORTE":   { promedio: 33200, tendencia: "+1.2%", historic: [32800, 32900, 33050, 33200] },
+  "SUR":     { promedio: 34100, tendencia: "+3.5%", historic: [32900, 33300, 33700, 34100] },
+  "ORIENTE": { promedio: 31900, tendencia: "-0.5%", historic: [32050, 31950, 31900, 31900] }
+};
+const dsHdiData = {
+  "CENTRO": [31800, 33100], "NORTE": [32600, 33800], "SUR": [33300, 34900], "ORIENTE": [31500, 32400]
+};
+const dsAlertas = [
+  { tipo: "critical", texto: "🔴 Precio sube >3% en SUR en últimos 7 días (+3.5%)", region: "SUR" },
+  { tipo: "warning",  texto: "🟡 Ferretería 'LaEsquina' reporta agotado Argos en NORTE", region: "NORTE" },
+  { tipo: "data",     texto: "⚠️ Más del 20% de cotizaciones en CENTRO tienen confianza <0.5", region: "CENTRO" }
+];
+const dsHistorial = {
+  "Ferretería El Triunfo":      [{ s:"user", t:"¿Qué precio tiene el cemento Argos?", time:"10:15" },{ s:"bot", t:"$32.500 el bulto, disponibilidad inmediata", time:"10:17" },{ s:"user", t:"Me interesa, ¿pueden enviar cotización?", time:"10:20" }],
+  "Ferretería La 14":           [{ s:"user", t:"Hola, ¿tienen cemento Cemex?", time:"09:05" },{ s:"bot", t:"Cemex $31.800, pero Argos está en $33.200", time:"09:07" }],
+  "Materiales del Centro":      [{ s:"user", t:"¿Qué hemos hablado antes sobre descuentos?", time:"ayer" },{ s:"bot", t:"Comentamos que pedidos >500 bultos aplica 5%", time:"ayer" }],
+  "Ferretería Norte Construye": [{ s:"user", t:"¿Mejores precios por volumen?", time:"12:00" },{ s:"bot", t:"Para 1000 bultos, $31.200 c/u", time:"12:02" }]
+};
+
+let dsPriceChart = null, dsHdiChart = null, dsWeeklyChart = null, dsInlineMap = null;
+
+function dsInitNavBar() {
+  const nav = document.getElementById('dsNavBar');
+  if (!nav) return;
+  nav.querySelectorAll('.ds-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      nav.querySelectorAll('.ds-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.ds-tab-content').forEach(el => el.style.display = 'none');
+      const tabId = btn.getAttribute('data-dstab');
+      const tabEl = document.getElementById(tabId);
+      if (tabEl) tabEl.style.display = 'block';
+      if (tabId === 'ds-history') dsRenderHistorial(document.getElementById('dsFerreteriaSelect')?.value || 'Ferretería El Triunfo');
+      if (tabId === 'ds-dashboard') { dsRenderRegionalChart(); dsRenderHDI(); dsRenderWeeklyTrend(); dsRenderAlertas(); if(dsInlineMap) dsInlineMap.invalidateSize(); }
+    });
+  });
+}
+
+function dsRenderRegionalChart() {
+  const ctx = document.getElementById('dsPriceRegionalChart');
+  if (!ctx) return;
+  if (dsPriceChart) { dsPriceChart.destroy(); dsPriceChart = null; }
+  const regions = Object.keys(dsPreciosData);
+  dsPriceChart = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: { labels: regions, datasets: [{ label: 'Precio Promedio (COP)', data: regions.map(r => dsPreciosData[r].promedio), backgroundColor: 'rgb(212,238,43)', borderRadius: 10 }] },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { ticks: { color: '#94A3B8' } }, y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(255,255,255,0.06)' } } } }
+  });
+  const detail = document.getElementById('dsTendenciaDetalle');
+  if (detail) detail.innerHTML = regions.map(r => `${r}: <strong style="color:#22D3EE">${dsPreciosData[r].tendencia}</strong>`).join(' &nbsp;·&nbsp; ');
+}
+
+function dsRenderHDI() {
+  const ctx = document.getElementById('dsHdiChart');
+  if (!ctx) return;
+  if (dsHdiChart) { dsHdiChart.destroy(); dsHdiChart = null; }
+  const regions = Object.keys(dsHdiData);
+  dsHdiChart = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: { labels: regions, datasets: [
+      { label: 'Límite inferior 94% HDI', data: regions.map(r => dsHdiData[r][0]), backgroundColor: 'rgba(167,139,250,0.5)', borderRadius: 6 },
+      { label: 'Límite superior 94% HDI', data: regions.map(r => dsHdiData[r][1]), backgroundColor: 'rgba(34,211,238,0.5)', borderRadius: 6 }
+    ]},
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(255,255,255,0.06)' } }, y: { ticks: { color: '#94A3B8' } } } }
+  });
+}
+
+function dsRenderWeeklyTrend() {
+  const ctx = document.getElementById('dsWeeklyTrendChart');
+  if (!ctx) return;
+  if (dsWeeklyChart) { dsWeeklyChart.destroy(); dsWeeklyChart = null; }
+  const weeks = ['Semana -3', 'Semana -2', 'Semana -1', 'Última Semana'];
+  const colors = ['#22D3EE', '#F472B6', '#A78BFA', '#10B981'];
+  const datasets = Object.keys(dsPreciosData).map((region, i) => ({
+    label: region, data: dsPreciosData[region].historic,
+    borderColor: colors[i], backgroundColor: colors[i] + '22',
+    tension: 0.3, fill: false, pointRadius: 4
+  }));
+  dsWeeklyChart = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: { labels: weeks, datasets },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#94A3B8' } } }, scales: { x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(255,255,255,0.06)' } }, y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(255,255,255,0.06)' } } } }
+  });
+}
+
+function dsRenderAlertas() {
+  const container = document.getElementById('dsAlertsPanel');
+  if (!container) return;
+  container.innerHTML = dsAlertas.map(a => `
+    <div class="ds-alert" style="border-left-color:${a.tipo==='critical'?'rgb(239,67,67)':a.tipo==='warning'?'rgb(245,159,10)':'rgb(212,238,43)'}">
+      <i class="fas ${a.tipo==='critical'?'fa-exclamation-triangle':'fa-bell'}" style="color:${a.tipo==='critical'?'#EF4444':a.tipo==='warning'?'#F59E0B':'#D4EE2B'}"></i>
+      <span>${a.texto}</span>
+    </div>
+  `).join('');
+}
+
+function dsRenderHistorial(key) {
+  const container = document.getElementById('dsChatHistory');
+  if (!container) return;
+  const msgs = dsHistorial[key] || [];
+  container.innerHTML = msgs.map(m => `
+    <div class="ds-bubble ${m.s==='user'?'ds-bubble-user':'ds-bubble-bot'}">
+      <div class="ds-chat-name">${m.s==='user'?'🧑 Cliente':'🤖 ARGOS Bot'}</div>
+      ${m.t}
+      <div style="font-size:0.62rem; margin-top:5px; opacity:0.55;">${m.time}</div>
+    </div>
+  `).join('');
+}
+
+function dsInitMapInline() {
+  const container = document.getElementById('dsMapContainer');
+  if (!container) return;
+  if (dsInlineMap) { dsInlineMap.remove(); dsInlineMap = null; }
+  dsInlineMap = L.map('dsMapContainer').setView([4.5709, -74.2973], 6);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> & CartoDB'
+  }).addTo(dsInlineMap);
+  municipiosData.forEach(m => {
+    const radius = 25 + (m.price - 31000) / 30;
+    const color = m.icp > 1.05 ? '#ef4343' : (m.icp > 1.0 ? '#f59f0a' : '#25b177');
+    L.circleMarker(m.coords, { radius, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.75 })
+      .bindPopup(`<b>${m.name}</b><br/>Precio: $${m.price.toLocaleString('es-CO')}<br/>ICP: ${m.icp}`)
+      .addTo(dsInlineMap);
+  });
+  setTimeout(() => dsInlineMap && dsInlineMap.invalidateSize(), 200);
+}
+
+function dsRefreshPrices() {
+  Object.keys(dsPreciosData).forEach(r => { dsPreciosData[r].promedio += Math.floor(Math.random() * 200 - 50); });
+  dsRenderRegionalChart(); dsRenderWeeklyTrend();
+}
+
+/* ─── INIT ───────────────────────────────────────────────────────── */
+renderRail();
+renderPanel();
+renderChrome();
+</script>
+</body>
+</html>
